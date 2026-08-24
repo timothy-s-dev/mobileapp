@@ -62,6 +62,8 @@ fun IndexWebhookSheet(
     val urlInput by viewModel.urlInput.collectAsState()
     val headerInputs by viewModel.headerInputs.collectAsState()
     val payloadMode by viewModel.payloadModeInput.collectAsState()
+    val bodyFormat by viewModel.bodyFormatInput.collectAsState()
+    val bodyTemplate by viewModel.bodyTemplateInput.collectAsState()
     val testState by viewModel.testState.collectAsState()
     val copyable by viewModel.copyableGesture.collectAsState()
     val canRemove by viewModel.canRemove.collectAsState()
@@ -126,20 +128,58 @@ fun IndexWebhookSheet(
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SectionLabel("What to send")
+                SectionLabel("Body format")
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                    IndexWebhookPayloadMode.entries.forEachIndexed { index, mode ->
+                    IndexWebhookBodyFormat.entries.forEachIndexed { index, format ->
                         SegmentedButton(
-                            selected = mode == payloadMode,
-                            onClick = { viewModel.updatePayloadMode(mode) },
+                            selected = format == bodyFormat,
+                            onClick = { viewModel.updateBodyFormat(format) },
                             shape = SegmentedButtonDefaults.itemShape(
                                 index = index,
-                                count = IndexWebhookPayloadMode.entries.size,
+                                count = IndexWebhookBodyFormat.entries.size,
                             ),
                         ) {
-                            Text(mode.segmentLabel())
+                            Text(format.segmentLabel())
                         }
                     }
+                }
+            }
+
+            if (bodyFormat == IndexWebhookBodyFormat.Multipart) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SectionLabel("What to send")
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        IndexWebhookPayloadMode.entries.forEachIndexed { index, mode ->
+                            SegmentedButton(
+                                selected = mode == payloadMode,
+                                onClick = { viewModel.updatePayloadMode(mode) },
+                                shape = SegmentedButtonDefaults.itemShape(
+                                    index = index,
+                                    count = IndexWebhookPayloadMode.entries.size,
+                                ),
+                            ) {
+                                Text(mode.segmentLabel())
+                            }
+                        }
+                    }
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    SectionLabel("Body")
+                    OutlinedTextField(
+                        value = bodyTemplate,
+                        onValueChange = viewModel::updateBodyTemplate,
+                        shape = RoundedCornerShape(8.dp),
+                        textStyle = MaterialTheme.typography.bodyMedium,
+                        minLines = 3,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        "Placeholders: {{transcription}}, {{recordedAt}}, {{trigger}}, " +
+                            "{{client}}, {{test}}. Text is JSON-escaped when substituted. " +
+                            "JSON sends the transcription only \u2014 audio needs the multipart body.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
             }
 
@@ -320,6 +360,11 @@ private fun formatBytes(bytes: Long): String = when {
     bytes < 1024 -> "$bytes B"
     bytes < 1024 * 1024 -> "${bytes / 1024} KB"
     else -> "${bytes / (1024 * 1024)} MB"
+}
+
+private fun IndexWebhookBodyFormat.segmentLabel(): String = when (this) {
+    IndexWebhookBodyFormat.Multipart -> "Form data"
+    IndexWebhookBodyFormat.Json -> "JSON"
 }
 
 private fun IndexWebhookPayloadMode.segmentLabel(): String = when (this) {

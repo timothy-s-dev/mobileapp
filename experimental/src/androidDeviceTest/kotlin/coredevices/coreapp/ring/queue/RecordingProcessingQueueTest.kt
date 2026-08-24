@@ -265,6 +265,8 @@ class RecordingProcessingQueueTest {
                     gesture: coredevices.ring.service.button.RingGesture,
                     url: String,
                     headers: Map<String, String>,
+                    bodyFormat: coredevices.ring.external.indexwebhook.IndexWebhookBodyFormat,
+                    bodyTemplate: String,
                 ) = coredevices.ring.external.indexwebhook.IndexWebhookRunResult(
                     ok = true, status = "200 OK", detail = "test event", byteSize = 0, durationMs = 0,
                 )

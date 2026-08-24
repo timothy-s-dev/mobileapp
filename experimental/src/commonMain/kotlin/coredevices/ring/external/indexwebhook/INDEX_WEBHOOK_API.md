@@ -8,8 +8,10 @@ Send Index ring recording data to any HTTP endpoint.
 2. Pick the gesture to configure: **Hold & talk** or **Double click & hold**. Each gesture has its own endpoint, headers and payload mode
 3. Enter your webhook URL
 4. Add any request headers you need (e.g. an auth header)
-5. Choose what to send: Recording only, Transcription only, or Both
-6. Optionally tap **Send test event** to verify the endpoint, then **Save**
+5. Choose the body format: **Form data** (multipart, the default) or **JSON**
+6. For form data, choose what to send: Recording only, Transcription only, or Both.
+   For JSON, write the body you want posted (see [JSON body](#json-body))
+7. Optionally tap **Send test event** to verify the endpoint, then **Save**
 
 A gesture only sends once its config is saved with a URL. The switch turns sending off without discarding the URL and headers, and the last 20 runs per gesture are listed under **Recent runs**.
 
@@ -23,6 +25,34 @@ X-Audio-Size: <byte count>  (when audio is included)
 X-Index-Trigger: single-click-hold | double-click-hold | test-event
 X-Index-Test: true  (test events only)
 ```
+
+## JSON body
+
+Set the body format to **JSON** and the request becomes `Content-Type: application/json` with a
+body you write yourself, so the ring can post directly to an API that expects its own shape
+instead of a multipart form.
+
+Placeholders are substituted before sending:
+
+| Placeholder | Value |
+|-------------|-------|
+| `{{transcription}}` | Transcription text, empty when there is none |
+| `{{recordedAt}}` | Unix timestamp in milliseconds |
+| `{{trigger}}` | `single-click-hold`, `double-click-hold`, or `test-event` |
+| `{{client}}` | Always `ring` |
+| `{{test}}` | `true` for test events, `false` otherwise |
+
+Text is escaped as JSON string content, so a transcription containing quotes or newlines is safe
+**inside a quoted placeholder** — wrap text placeholders in quotes yourself. `{{recordedAt}}` and
+`{{test}}` are a number and a boolean, so they can be used unquoted. A rendered body that is not
+valid JSON is not sent; the run is recorded as `INVALID BODY` instead.
+
+```json
+{"content": "{{transcription}}", "createdAt": {{recordedAt}}}
+```
+
+JSON carries the **transcription only** — audio needs the multipart body, so the payload mode is
+not used in this format.
 
 ## Multipart Fields
 
@@ -53,6 +83,8 @@ Unix timestamp in milliseconds when the recording was captured.
 Always set to `"ring"`.
 
 ## Payload Modes
+
+These apply to the multipart format only.
 
 | Mode               | `audio` | `transcription` | `recordedAt` | `client` |
 |--------------------|---------|-----------------|--------------|----------|

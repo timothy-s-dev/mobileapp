@@ -25,15 +25,43 @@ enum class IndexWebhookPayloadMode(val id: Int) {
     }
 }
 
+/**
+ * How the request body is encoded. [Json] posts a user-supplied template instead of the
+ * multipart form, and carries the transcription only — audio has no place in a JSON body.
+ */
+enum class IndexWebhookBodyFormat(val id: Int) {
+    Multipart(0),
+    Json(1);
+
+    companion object {
+        fun fromId(id: Int): IndexWebhookBodyFormat =
+            entries.firstOrNull { it.id == id } ?: Multipart
+    }
+}
+
+/** Default template, shown when a user first switches a gesture to JSON. */
+const val DEFAULT_WEBHOOK_JSON_TEMPLATE = """{"content": "{{transcription}}"}"""
+
 /** Webhook configuration for a single recording gesture. */
 @Serializable
 data class IndexWebhookConfig(
     val url: String? = null,
     val payloadMode: IndexWebhookPayloadMode = IndexWebhookPayloadMode.RecordingOnly,
     val headers: Map<String, String> = emptyMap(),
+    val bodyFormat: IndexWebhookBodyFormat = IndexWebhookBodyFormat.Multipart,
+    val bodyTemplate: String = DEFAULT_WEBHOOK_JSON_TEMPLATE,
     val saved: Boolean = false,
 ) {
     val isActive: Boolean get() = saved && !url.isNullOrBlank()
+
+    /** A JSON body carries the transcription and nothing else, whatever [payloadMode] says. */
+    val includesAudio: Boolean
+        get() = bodyFormat != IndexWebhookBodyFormat.Json &&
+            payloadMode != IndexWebhookPayloadMode.TranscriptionOnly
+
+    val includesTranscription: Boolean
+        get() = bodyFormat == IndexWebhookBodyFormat.Json ||
+            payloadMode != IndexWebhookPayloadMode.RecordingOnly
 }
 
 /**

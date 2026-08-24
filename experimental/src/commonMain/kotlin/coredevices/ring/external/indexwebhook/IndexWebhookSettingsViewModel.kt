@@ -56,6 +56,12 @@ class IndexWebhookSettingsViewModel(
     private val _payloadModeInput = MutableStateFlow(IndexWebhookPayloadMode.RecordingOnly)
     val payloadModeInput = _payloadModeInput.asStateFlow()
 
+    private val _bodyFormatInput = MutableStateFlow(IndexWebhookBodyFormat.Multipart)
+    val bodyFormatInput = _bodyFormatInput.asStateFlow()
+
+    private val _bodyTemplateInput = MutableStateFlow(DEFAULT_WEBHOOK_JSON_TEMPLATE)
+    val bodyTemplateInput = _bodyTemplateInput.asStateFlow()
+
     private val _testState = MutableStateFlow<WebhookTestState>(WebhookTestState.Idle)
     val testState = _testState.asStateFlow()
 
@@ -116,6 +122,14 @@ class IndexWebhookSettingsViewModel(
         _headerInputs.value = _headerInputs.value.filterIndexed { i, _ -> i != index }
     }
 
+    fun updateBodyFormat(format: IndexWebhookBodyFormat) {
+        _bodyFormatInput.value = format
+    }
+
+    fun updateBodyTemplate(template: String) {
+        _bodyTemplateInput.value = template
+    }
+
     fun updatePayloadMode(mode: IndexWebhookPayloadMode) {
         _payloadModeInput.value = mode
     }
@@ -130,7 +144,13 @@ class IndexWebhookSettingsViewModel(
         val url = _urlInput.value.trim().ifBlank { null } ?: return
         _testState.value = WebhookTestState.Sending
         viewModelScope.launch {
-            val result = webhookApi.sendTestEvent(gesture, url, draftHeaders())
+            val result = webhookApi.sendTestEvent(
+                gesture,
+                url,
+                draftHeaders(),
+                _bodyFormatInput.value,
+                _bodyTemplateInput.value,
+            )
             _testState.value = WebhookTestState.Done(
                 ok = result.ok,
                 label = "${result.status} · ${result.durationMs} ms",
@@ -149,6 +169,8 @@ class IndexWebhookSettingsViewModel(
                 IndexWebhookConfig(
                     url = url,
                     payloadMode = _payloadModeInput.value,
+                    bodyFormat = _bodyFormatInput.value,
+                    bodyTemplate = _bodyTemplateInput.value,
                     headers = draftHeaders(),
                     saved = true,
                 ),
@@ -163,6 +185,8 @@ class IndexWebhookSettingsViewModel(
             .map { WebhookHeaderInput(it.key, it.value) }
             .ifEmpty { listOf(WebhookHeaderInput("", "")) }
         _payloadModeInput.value = config.payloadMode
+        _bodyFormatInput.value = config.bodyFormat
+        _bodyTemplateInput.value = config.bodyTemplate.ifBlank { DEFAULT_WEBHOOK_JSON_TEMPLATE }
     }
 
     /** Drops rows with a blank name; later rows win on duplicate names. */

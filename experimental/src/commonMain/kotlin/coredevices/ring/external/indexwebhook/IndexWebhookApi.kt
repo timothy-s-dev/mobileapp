@@ -13,6 +13,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.content.ByteArrayContent
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.serialization.json.Json
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.minutes
@@ -46,6 +47,8 @@ interface IndexWebhookApi {
         gesture: RingGesture,
         url: String,
         headers: Map<String, String>,
+        bodyFormat: IndexWebhookBodyFormat,
+        bodyTemplate: String,
     ): IndexWebhookRunResult
 }
 
@@ -69,6 +72,7 @@ internal const val WEBHOOK_TRIGGER_HEADER = "X-Index-Trigger"
 internal const val WEBHOOK_TEST_HEADER = "X-Index-Test"
 internal const val WEBHOOK_TEST_TRIGGER = "test-event"
 internal const val WEBHOOK_TEST_TRANSCRIPTION = "Index webhook test event"
+internal const val WEBHOOK_CLIENT = "ring"
 
 /**
  * Generic webhook API client for uploading Index recording data.
@@ -103,15 +107,13 @@ class IndexWebhookApiImpl(
                 logger.d { "Webhook upload for $recordingId (${gesture.name}, mode=${config.payloadMode})" }
 
                 val m4aData: ByteArray? = if (
-                    samples != null &&
-                    config.payloadMode != IndexWebhookPayloadMode.TranscriptionOnly
+                    samples != null && config.includesAudio
                 ) {
                     m4aEncoder.encode(samples, sampleRate)
                 } else null
 
-                val transcriptionToSend: String? = if (
-                    config.payloadMode != IndexWebhookPayloadMode.RecordingOnly
-                ) transcription else null
+                val transcriptionToSend: String? =
+                    if (config.includesTranscription) transcription else null
 
                 val result = post(
                     url = url,
@@ -122,6 +124,8 @@ class IndexWebhookApiImpl(
                     transcription = transcriptionToSend,
                     recordedAt = recordedAt,
                     isTest = false,
+                    bodyFormat = config.bodyFormat,
+                    bodyTemplate = config.bodyTemplate,
                 )
                 runRepository.record(
                     gesture = gesture,
@@ -146,6 +150,8 @@ class IndexWebhookApiImpl(
         gesture: RingGesture,
         url: String,
         headers: Map<String, String>,
+        bodyFormat: IndexWebhookBodyFormat,
+        bodyTemplate: String,
     ): IndexWebhookRunResult {
         val result = post(
             url = url,
@@ -156,6 +162,8 @@ class IndexWebhookApiImpl(
             transcription = WEBHOOK_TEST_TRANSCRIPTION,
             recordedAt = Clock.System.now(),
             isTest = true,
+            bodyFormat = bodyFormat,
+            bodyTemplate = bodyTemplate,
         )
         runRepository.record(
             gesture = gesture,
@@ -177,16 +185,43 @@ class IndexWebhookApiImpl(
         transcription: String?,
         recordedAt: Instant,
         isTest: Boolean,
+        bodyFormat: IndexWebhookBodyFormat,
+        bodyTemplate: String,
     ): IndexWebhookRunResult {
+        val json = bodyFormat == IndexWebhookBodyFormat.Json
         val boundary = Uuid.random().toString()
-        val bodyBytes = buildWebhookMultipartBody(
-            boundary = boundary,
-            audioData = audioData,
-            filename = filename ?: "recording.m4a",
-            recordedAt = recordedAt.toEpochMilliseconds(),
-            transcription = transcription,
-            isTest = isTest,
-        )
+        val rendered = if (json) {
+            renderWebhookJsonBody(
+                template = bodyTemplate,
+                transcription = transcription,
+                recordedAt = recordedAt.toEpochMilliseconds(),
+                trigger = triggerValue,
+                isTest = isTest,
+            )
+        } else {
+            null
+        }
+        // The template is the user's, so the rendered body is only JSON if they wrote it that way.
+        // Posting malformed bytes as application/json fails somewhere less obvious than here.
+        if (rendered != null && runCatching { Json.parseToJsonElement(rendered) }.isFailure) {
+            return IndexWebhookRunResult(
+                ok = false,
+                status = "INVALID BODY",
+                detail = "Body template did not render valid JSON",
+                byteSize = rendered.length.toLong(),
+                durationMs = 0,
+            )
+        }
+        val bodyBytes = rendered?.encodeToByteArray() ?: run {
+            buildWebhookMultipartBody(
+                boundary = boundary,
+                audioData = audioData,
+                filename = filename ?: "recording.m4a",
+                recordedAt = recordedAt.toEpochMilliseconds(),
+                transcription = transcription,
+                isTest = isTest,
+            )
+        }
         val started = TimeSource.Monotonic.markNow()
         return try {
             val response = client.post(url) {
@@ -202,7 +237,11 @@ class IndexWebhookApiImpl(
                 setBody(
                     ByteArrayContent(
                         bytes = bodyBytes,
-                        contentType = ContentType.parse("multipart/form-data; boundary=$boundary"),
+                        contentType = if (json) {
+                            ContentType.Application.Json
+                        } else {
+                            ContentType.parse("multipart/form-data; boundary=$boundary")
+                        },
                     )
                 )
             }
@@ -289,7 +328,7 @@ internal fun buildWebhookMultipartBody(
 
     metadata.append("--$boundary$crlf")
     metadata.append("Content-Disposition: form-data; name=\"client\"$crlf$crlf")
-    metadata.append("ring$crlf")
+    metadata.append("$WEBHOOK_CLIENT$crlf")
 
     metadata.append("--$boundary--$crlf")
     parts.add(metadata.toString().encodeToByteArray())

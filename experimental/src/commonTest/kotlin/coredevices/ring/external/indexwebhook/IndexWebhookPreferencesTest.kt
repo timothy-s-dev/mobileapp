@@ -211,4 +211,76 @@ class IndexWebhookPreferencesTest {
             IndexWebhookPreferences(settings).configFor(RingGesture.Hold),
         )
     }
+
+    @Test
+    fun aConfigStoredBeforeJsonBodiesExistedStillLoads() {
+        val legacy = """{"url":"https://example.com/hook","payloadMode":"TranscriptionOnly","saved":true}"""
+        val prefs = IndexWebhookPreferences(
+            MapSettings("index_webhook_config_" + RingGesture.Hold.name to legacy)
+        )
+
+        val config = prefs.configFor(RingGesture.Hold)
+
+        assertEquals("https://example.com/hook", config.url)
+        assertEquals(IndexWebhookBodyFormat.Multipart, config.bodyFormat)
+        assertEquals(DEFAULT_WEBHOOK_JSON_TEMPLATE, config.bodyTemplate)
+    }
+
+    @Test
+    fun aJsonBodyConfigRoundTripsThroughSettings() {
+        val settings = MapSettings()
+        IndexWebhookPreferences(settings).setConfig(
+            RingGesture.Hold,
+            IndexWebhookConfig(
+                url = "https://example.com/hook",
+                bodyFormat = IndexWebhookBodyFormat.Json,
+                bodyTemplate = """{"text":"{{transcription}}"}""",
+                saved = true,
+            ),
+        )
+
+        val reloaded = IndexWebhookPreferences(settings).configFor(RingGesture.Hold)
+
+        assertEquals(IndexWebhookBodyFormat.Json, reloaded.bodyFormat)
+        assertEquals("""{"text":"{{transcription}}"}""", reloaded.bodyTemplate)
+    }
+
+    @Test
+    fun aJsonConfigKeepsTheStoredPayloadModeButCarriesTheTranscription() {
+        val settings = MapSettings()
+        IndexWebhookPreferences(settings).setConfig(
+            RingGesture.Hold,
+            IndexWebhookConfig(
+                url = "https://example.com/hook",
+                bodyFormat = IndexWebhookBodyFormat.Json,
+                payloadMode = IndexWebhookPayloadMode.RecordingOnly,
+                saved = true,
+            ),
+        )
+
+        // The multipart choice survives a round trip through JSON, but JSON never carries audio.
+        val reloaded = IndexWebhookPreferences(settings).configFor(RingGesture.Hold)
+        assertEquals(IndexWebhookPayloadMode.RecordingOnly, reloaded.payloadMode)
+        assertTrue(reloaded.includesTranscription)
+        assertFalse(reloaded.includesAudio)
+    }
+
+    @Test
+    fun aMultipartConfigKeepsItsPayloadMode() {
+        val settings = MapSettings()
+        IndexWebhookPreferences(settings).setConfig(
+            RingGesture.Hold,
+            IndexWebhookConfig(
+                url = "https://example.com/hook",
+                bodyFormat = IndexWebhookBodyFormat.Multipart,
+                payloadMode = IndexWebhookPayloadMode.RecordingOnly,
+                saved = true,
+            ),
+        )
+
+        assertEquals(
+            IndexWebhookPayloadMode.RecordingOnly,
+            IndexWebhookPreferences(settings).configFor(RingGesture.Hold).payloadMode,
+        )
+    }
 }

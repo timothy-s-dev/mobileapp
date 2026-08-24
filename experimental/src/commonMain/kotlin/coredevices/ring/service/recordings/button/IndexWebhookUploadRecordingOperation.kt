@@ -48,9 +48,9 @@ class IndexWebhookUploadRecordingOperation(
         decorated.run(handle)
 
         val sendKey = fileId ?: "text-$recordingId"
-        val payloadMode = webhookPreferences.configFor(gesture).payloadMode
-        // Typed input has no audio, so a recording-only webhook has nothing to deliver.
-        if (fileId == null && payloadMode == IndexWebhookPayloadMode.RecordingOnly) return
+        val config = webhookPreferences.configFor(gesture)
+        // Typed input has no audio, so a webhook that only carries audio has nothing to deliver.
+        if (fileId == null && !config.includesTranscription) return
 
         if (!sentRecordingIdsLock.withLock { sentRecordingIds.add(sendKey) }) {
             logger.d { "Webhook already sent for recording $sendKey, skipping" }
@@ -60,7 +60,7 @@ class IndexWebhookUploadRecordingOperation(
         // Read audio samples if needed
         val samples: ShortArray?
         val sampleRate: Int
-        if (fileId != null && payloadMode != IndexWebhookPayloadMode.TranscriptionOnly) {
+        if (fileId != null && config.includesAudio) {
             val (source, meta) = recordingStorage.openRecordingSource(fileId)
             samples = ShortArray((meta.size / 2).toInt())
             source.buffered().use {
@@ -75,7 +75,7 @@ class IndexWebhookUploadRecordingOperation(
         }
 
         // Read transcription if needed
-        val transcription: String? = if (payloadMode != IndexWebhookPayloadMode.RecordingOnly) {
+        val transcription: String? = if (config.includesTranscription) {
             recordingEntryDao.getMostRecentEntryForRecording(recordingId)?.transcription
         } else null
 
